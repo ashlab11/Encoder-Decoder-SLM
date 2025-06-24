@@ -8,5 +8,4 @@ __pycache__/
 *.pywz
 *.pyzw
 *.pyzwz
-image/
 *.jsonl
