@@ -9,8 +9,10 @@ class EncoderDecoderModel(nn.Module):
         max_seq_length: int,
         dim: int = 256,
         num_heads: int = 9,
-        num_encoder_layers: int = 6,
-        num_decoder_layers: int = 3,
+        num_encoder_layers: int = 14,
+        num_decoder_layers: int = 7,
+        enc_max_seq_len: int = 1024,
+        dec_max_seq_len: int = 1024,
         mlp_dim: int = None,
         dropout: float = 0.1,
         pad_token_id: int = 0
@@ -25,7 +27,7 @@ class EncoderDecoderModel(nn.Module):
         
         # Encoder
         self.encoder_layers = nn.ModuleList([
-            EncoderLayer(dim=dim, num_heads=num_heads, mlp_dim=mlp_dim, dropout=dropout)
+            EncoderLayer(dim=dim, num_heads=num_heads, mlp_dim=mlp_dim, dropout=dropout, enc_max_seq_len=enc_max_seq_len)
             for _ in range(num_encoder_layers)
         ])
         

@@ -8,12 +8,13 @@ import torch.nn as nn
 from torchtune.modules import RotaryPositionalEmbeddings 
 
 class SelfAttention(nn.Module):
-    def __init__(self, dim, num_heads, dropout=0.1):
+    def __init__(self, dim, num_heads, max_seq_len = 1024, dropout=0.1):
         super(SelfAttention, self).__init__()
         self.dim = dim
         self.num_heads = num_heads
         self.head_dim = dim // num_heads
         assert self.head_dim * num_heads == dim, "dim must be divisible by num_heads"
+        self.max_seq_len = max_seq_len
         
         self.query_proj = nn.Linear(dim, dim)
         self.key_proj = nn.Linear(dim, dim)
@@ -23,7 +24,7 @@ class SelfAttention(nn.Module):
         self.scale = self.head_dim ** -0.5
         self.dropout = nn.Dropout(dropout)
         
-        self.rotary_emb = RotaryPositionalEmbeddings(dim=self.head_dim)
+        self.rotary_emb = RotaryPositionalEmbeddings(dim=self.head_dim, max_seq_len=max_seq_len)
 
     def forward(self, x, causal=True, attention_mask=None, **kwargs):
         B, L, D = x.size()  # [batch_size, seq_length, embed_dim]
@@ -55,12 +56,14 @@ class SelfAttention(nn.Module):
         return output
     
 class CrossAttention(nn.Module):
-    def __init__(self, dim, num_heads, dropout=0.1):
+    def __init__(self, dim, num_heads, enc_max_seq_len = 1024, dec_max_seq_len = 1024, dropout=0.1):
         super(CrossAttention, self).__init__()
         self.dim = dim
         self.num_heads = num_heads
         self.head_dim = dim // num_heads
         assert self.head_dim * num_heads == dim, "dim must be divisible by num_heads"
+        self.enc_max_seq_len = enc_max_seq_len
+        self.dec_max_seq_len = dec_max_seq_len
         
         self.query_proj = nn.Linear(dim, dim)
         self.key_proj = nn.Linear(dim, dim)
@@ -71,8 +74,8 @@ class CrossAttention(nn.Module):
         self.dropout = dropout
         
         # Separate rotary embeddings for decoder (query) and encoder (key) sequences
-        self.query_rotary = RotaryPositionalEmbeddings(dim=self.head_dim)
-        self.key_rotary = RotaryPositionalEmbeddings(dim=self.head_dim)
+        self.query_rotary = RotaryPositionalEmbeddings(dim=self.head_dim, max_seq_len=dec_max_seq_len)
+        self.key_rotary = RotaryPositionalEmbeddings(dim=self.head_dim, max_seq_len=enc_max_seq_len)
         
     def forward(self, x, encoder_inputs, attention_mask=None, **kwargs):
         B, L, D = x.size()  # [batch_size, decoder_seq_length, embed_dim]

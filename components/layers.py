@@ -5,6 +5,7 @@ Module for Encoder-Decoder Transformer
 import torch
 import torch.nn as nn
 from .attention import SelfAttention, CrossAttention
+#NOTE: fix use of max_seq_len for RoPE
 
 class EncoderLayer(nn.Module):
     def __init__(self, dim, num_heads, mlp_dim=None, dropout=0.1):
