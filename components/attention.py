@@ -30,9 +30,9 @@ class SelfAttention(nn.Module):
         B, L, D = x.size()  # [batch_size, seq_length, embed_dim]
         
         # Self-attention
-        query = self.query_proj(x)
-        key = self.key_proj(x)
-        value = self.value_proj(x)
+        query = self.query_proj(x).reshape(B, L, self.num_heads, self.head_dim).transpose(1, 2) # [B, num_heads, L, head_dim]
+        key = self.key_proj(x).reshape(B, L, self.num_heads, self.head_dim).transpose(1, 2) # [B, num_heads, L, head_dim]
+        value = self.value_proj(x).reshape(B, L, self.num_heads, self.head_dim).transpose(1, 2) # [B, num_heads, L, head_dim]
         
         # Apply RoPE
         query = self.rotary_emb(query)
@@ -79,11 +79,12 @@ class CrossAttention(nn.Module):
         
     def forward(self, x, encoder_inputs, attention_mask=None, **kwargs):
         B, L, D = x.size()  # [batch_size, decoder_seq_length, embed_dim]
+        seq_len_enc = encoder_inputs.size(1)  # [batch_size, encoder_seq_length, embed_dim]
         
         # Cross-attention
-        query = self.query_proj(x)
-        key = self.key_proj(encoder_inputs)
-        value = self.value_proj(encoder_inputs)
+        query = self.query_proj(x).reshape(B, L, self.num_heads, self.head_dim).transpose(1, 2) # [B, num_heads, L, head_dim]
+        key = self.key_proj(encoder_inputs).reshape(B, seq_len_enc, self.num_heads, self.head_dim).transpose(1, 2) # [B, num_heads, seq_len_enc, head_dim]
+        value = self.value_proj(encoder_inputs).reshape(B, seq_len_enc, self.num_heads, self.head_dim).transpose(1, 2) # [B, num_heads, seq_len_enc, head_dim]
         
         # Apply RoPE separately to decoder queries and encoder keys
         query = self.query_rotary(query)  # Use decoder positions
@@ -92,7 +93,7 @@ class CrossAttention(nn.Module):
         output = torch.nn.functional.scaled_dot_product_attention(
             query, key, value,
             attn_mask=attention_mask,
-            dropout_p=self.dropout if self.training else 0.0)
+            dropout_p=self.dropout if self.training else 0.0) # [B, num_heads, L, head_dim]
         output = output.transpose(1, 2).contiguous().view(B, L, D)  # [B, L, embed_dim]
         output = self.out_proj(output)
         return output

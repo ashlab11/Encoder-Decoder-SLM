@@ -8,13 +8,13 @@ from .attention import SelfAttention, CrossAttention
 #NOTE: fix use of max_seq_len for RoPE
 
 class EncoderLayer(nn.Module):
-    def __init__(self, dim, num_heads, mlp_dim=None, dropout=0.1):
+    def __init__(self, dim, num_heads, enc_seq_len, mlp_dim=None, dropout=0.1):
         super(EncoderLayer, self).__init__()
         self.dim = dim
         mlp_dim = mlp_dim or 4 * dim 
         
         # Self-attention block
-        self.self_attn = SelfAttention(dim=dim, num_heads=num_heads, dropout=dropout)
+        self.self_attn = SelfAttention(dim=dim, num_heads=num_heads, max_seq_len=enc_seq_len, dropout=dropout)
         self.norm1 = nn.LayerNorm(dim)
         
         # MLP block
@@ -42,18 +42,18 @@ class EncoderLayer(nn.Module):
         
         return x
 
-class DecoderLayer(nn.Module):
-    def __init__(self, dim, num_heads, mlp_dim=None, dropout=0.1):
-        super(DecoderLayer, self).__init__()
+class DecoderLayerWithCrossAttention(nn.Module):
+    def __init__(self, dim, num_heads, dec_seq_len, enc_seq_len, mlp_dim=None, dropout=0.1):
+        super(DecoderLayerWithCrossAttention, self).__init__()
         self.dim = dim
         mlp_dim = mlp_dim or 4 * dim  # Default to 4x if not specified
         
         # Self-attention block
-        self.self_attn = SelfAttention(dim=dim, num_heads=num_heads, dropout=dropout)
+        self.self_attn = SelfAttention(dim=dim, num_heads=num_heads, max_seq_len=dec_seq_len, dropout=dropout)
         self.norm1 = nn.LayerNorm(dim)
         
         # Cross-attention block
-        self.cross_attn = CrossAttention(dim=dim, num_heads=num_heads, dropout=dropout)
+        self.cross_attn = CrossAttention(dim=dim, num_heads=num_heads, enc_max_seq_len=enc_seq_len, dec_max_seq_len=dec_seq_len, dropout=dropout)
         self.norm2 = nn.LayerNorm(dim)
         
         # MLP block
