@@ -2,11 +2,11 @@ import sentencepiece as spm
 import os
 
 # Paths and parameters
-CORPUS_FILE   = "data/MiniHQ_100M.jsonl"
+CORPUS_FILE   = "data/MiniHQ_100M/slimpajama_cc_100M.jsonl"
 MODEL_DIR     = "tokenizer"
 MODEL_PREFIX  = os.path.join(MODEL_DIR, "tokenizer")
-VOCAB_SIZE    = 8000
-CHAR_COVERAGE = 1.0 
+VOCAB_SIZE    = 8192
+CHAR_COVERAGE = 0.9995  # Lower coverage for English-only text
 #MIN_SENTENCE_LENGTH = 50
 MAX_SENTENCE_LENGTH = 10000
 SAMPLE_SIZE = 10000000  
@@ -14,23 +14,28 @@ SAMPLE_SIZE = 10000000
 # Ensure output directory exists
 os.makedirs(MODEL_DIR, exist_ok=True)
 
+NUM_SENTINELS = 100
+sentinel_tokens = [f"<sentinel_{i}>" for i in range(NUM_SENTINELS)]
+
 # Define special tokens
 special_tokens = [
-    "<context>", "<answer>", "[MASK]"
+    "<context>", "<answer>", *sentinel_tokens
 ]
 
-# Train the SentencePiece Unigram tokenizer
+# Basic ASCII punctuation and control symbols
+control_symbols = [".", ",", "!", "?", "-", "'", '"', "(", ")", "[", "]", "{", "}", ":", ";", "/", "\\", "|", "@", "#", "$", "%", "^", "&", "*", "+", "=", "<", ">", "~", "`"]
+
+# Train the SentencePiece BPE tokenizer
 spm.SentencePieceTrainer.Train(
     input=CORPUS_FILE,
     model_prefix=MODEL_PREFIX,
     vocab_size=VOCAB_SIZE,
-    model_type='unigram',
+    model_type='bpe',
     character_coverage=CHAR_COVERAGE,
-    pad_piece='[PAD]',
-    unk_piece='[UNK]',
-    bos_piece='[CLS]',
-    eos_piece='[SEP]',
+    pad_id=3,
     user_defined_symbols=special_tokens,
+    control_symbols=control_symbols,
+    normalization_rule_name='nmt_nfkc',  # Normalize unicode characters
     max_sentence_length=MAX_SENTENCE_LENGTH,
     input_sentence_size=SAMPLE_SIZE,
     shuffle_input_sentence=True
