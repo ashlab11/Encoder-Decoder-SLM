@@ -69,7 +69,7 @@ def main():
          batch_size=batch_size,
          collate_fn=collator,
          drop_last=True,
-         pin_memory=False,
+         pin_memory=torch.cuda.is_available(),
      )
      
      eval_dataloader = DataLoader(
@@ -77,18 +77,22 @@ def main():
          batch_size=batch_size,
          collate_fn=collator,
          drop_last=True,
-         pin_memory=False,
+         pin_memory=torch.cuda.is_available(),
      )
  
-     device = "cuda" if torch.cuda.is_available() else 'mps' if torch.backends.mps.is_available() else "cpu"
+     device = "cuda" if torch.cuda.is_available() else "cpu"
+     if torch.cuda.is_available():
+         torch.backends.cuda.matmul.allow_tf32 = True
+         torch.backends.cudnn.benchmark = True
      model.to(device)
 
-     optimizer = AdamW(model.parameters(), lr=3e-4)
-     scheduler = get_cosine_schedule_with_warmup(
-         optimizer,
-         num_warmup_steps=1000,
-         num_training_steps=max_steps,
-     )
+    optimizer = AdamW(model.parameters(), lr=3e-4)
+    scheduler = get_cosine_schedule_with_warmup(
+        optimizer,
+        num_warmup_steps=1000,
+        num_training_steps=max_steps,
+    )
+    scaler = torch.cuda.amp.GradScaler() if torch.cuda.is_available() else None
  
      model.train()
      os.makedirs("models/base", exist_ok=True)
@@ -96,12 +100,20 @@ def main():
      step = 0
      for micro_step, batch in tqdm(enumerate(dataloader), total=max_steps * grad_accum_steps, desc="Training"):
          batch = {k: v.to(device) for k, v in batch.items()}
-         outputs = model(**batch)
-         loss = outputs["loss"] / grad_accum_steps
-         loss.backward()
+         with torch.cuda.amp.autocast(enabled=torch.cuda.is_available()):
+             outputs = model(**batch)
+             loss = outputs["loss"] / grad_accum_steps
+         if scaler:
+             scaler.scale(loss).backward()
+         else:
+             loss.backward()
 
          if (micro_step + 1) % grad_accum_steps == 0:
-             optimizer.step()
+             if scaler:
+                 scaler.step(optimizer)
+                 scaler.update()
+             else:
+                 optimizer.step()
              scheduler.step()
              optimizer.zero_grad()
              step += 1
@@ -115,8 +127,9 @@ def main():
                      eval_perplexity = 0
                      for eval_batch in eval_dataloader:
                          eval_batch = {k: v.to(device) for k, v in eval_batch.items()}
-                         eval_outputs = model(**eval_batch)
-                         eval_loss = eval_outputs["loss"]
+                         with torch.cuda.amp.autocast(enabled=torch.cuda.is_available()):
+                             eval_outputs = model(**eval_batch)
+                             eval_loss = eval_outputs["loss"]
                          eval_perplexity += torch.exp(eval_loss)
                          
                      eval_perplexity /= len(eval_dataloader)

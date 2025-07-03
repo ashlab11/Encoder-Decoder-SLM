@@ -8,6 +8,16 @@ import torch
 import os
 def main():
     torch.set_float32_matmul_precision("high")
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    if torch.cuda.is_available():
+        torch.backends.cuda.matmul.allow_tf32 = True
+        torch.backends.cudnn.benchmark = True
+        if hasattr(torch.backends.cuda, "enable_flash_sdp"):
+            torch.backends.cuda.enable_flash_sdp(True)
+        if hasattr(torch.backends.cuda, "enable_mem_efficient_sdp"):
+            torch.backends.cuda.enable_mem_efficient_sdp(True)
+        if hasattr(torch.backends.cuda, "enable_math_sdp"):
+            torch.backends.cuda.enable_math_sdp(True)
 
     # 1) tokenizer & sentinel ids
     tokenizer = Tokenizer.from_file("tokenizer/tokenizer.json")
@@ -35,6 +45,7 @@ def main():
             model = torch.compile(model)
         except Exception:
             pass
+    model.to(device)
 
     # 3) dataset pipeline (streaming ok)
     ds = load_dataset(
@@ -78,11 +89,11 @@ def main():
         evaluation_strategy="steps",
         eval_steps=50,
         save_total_limit=2,
-        fp16=False,                     # use fp16 on nvidia gpu
+        fp16=True if torch.cuda.is_available() else False,
         push_to_hub=False,
         remove_unused_columns=False,   # because our model doesn't expect extra cols
         #dataloader_num_workers=4,      # parallelize data loading
-        dataloader_pin_memory=False,   # disable for MPS
+        dataloader_pin_memory=True if torch.cuda.is_available() else False,
         dataloader_drop_last=True,     # drop incomplete batches
         gradient_accumulation_steps=4,  # accumulate gradients over 4 batches (effective batch size = 32)
         ddp_find_unused_parameters=False  # disable parameter sync check

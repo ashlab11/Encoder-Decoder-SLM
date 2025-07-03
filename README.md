@@ -19,3 +19,5 @@ Timeline:
   perplexity every few steps so you can monitor progress.
 - Training now enables `torch.compile` (when available) and sets high matmul precision on Apple Silicon for faster
   execution on macOS machines.
+- Training and PyTorch loops now automatically use CUDA with FP16 when available and enable
+  TF32 and Flash attention optimizations for H100 GPUs.
