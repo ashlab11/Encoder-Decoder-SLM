@@ -1,4 +1,5 @@
 import random
+from scipy.stats import poisson
 
 class SpanCorruptionCollator:
     """
@@ -22,6 +23,7 @@ class SpanCorruptionCollator:
         self.label_pad_token_id = label_pad_token_id
         self.bos_token_id = bos_token_id
         self.eos_token_id = eos_token_id
+        self.poisson = poisson(mu=span_length)
 
     def __call__(self, batch):
         """
@@ -51,19 +53,21 @@ class SpanCorruptionCollator:
         masked_input = []
         labels = []
         sentinel_iterator = iter(self.sentinel_ids)
+        sentinels_left = len(self.sentinel_ids)
         position = 0
 
         while position < len(input_ids):
-            if random.random() < self.mask_probability / self.span_length:
+            if sentinels_left > 0 and random.random() < self.mask_probability / self.span_length:
                 sentinel_token = next(sentinel_iterator)
                 masked_input.append(sentinel_token)
                 labels.append(sentinel_token)
 
-                span_end = position + self.span_length
+                span_end = position + self.poisson.rvs()
                 original_span = input_ids[position:span_end]
                 labels.extend(original_span)
 
                 position = span_end
+                sentinels_left -= 1
             else:
                 masked_input.append(input_ids[position])
                 position += 1
