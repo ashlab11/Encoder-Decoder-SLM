@@ -1,13 +1,14 @@
-from transformers import Trainer, TrainingArguments, PreTrainedTokenizerFast
-from tokenizers import Tokenizer    
-import sentencepiece as spm
+from transformers import Trainer, TrainingArguments
+from tokenizers import Tokenizer
 from datasets import load_dataset
-from torch.utils.data import DataLoader
 from components.basic_model import BasicEDModel
 from data.pack_datasets import build_packed_dataset
 from src.data_collator_for_span import SpanCorruptionCollator
+import torch
 import os
 def main():
+    torch.set_float32_matmul_precision("high")
+
     # 1) tokenizer & sentinel ids
     tokenizer = Tokenizer.from_file("tokenizer/tokenizer.json")
 
@@ -29,13 +30,28 @@ def main():
         pad_token_id=pad_token_id
     )
 
+    if hasattr(torch, "compile"):
+        try:
+            model = torch.compile(model)
+        except Exception:
+            pass
+
     # 3) dataset pipeline (streaming ok)
-    ds = load_dataset("json",
-                      data_files="data/MiniHQ_100M/slimpajama_100M.jsonl",
-                      split="train",
-                      streaming=True)
+    ds = load_dataset(
+        "json",
+        data_files="data/MiniHQ_100M/slimpajama_100M.jsonl",
+        split="train",
+        streaming=True,
+    )
     ds = ds.shuffle(buffer_size=10_000, seed=42)
     ds = build_packed_dataset(ds, tokenizer, 1024, eos_id=eos_token_id)
+
+    eval_raw = load_dataset(
+        "json",
+        data_files="data/eval_sample.jsonl",
+        split="train",
+    )
+    eval_ds = build_packed_dataset(eval_raw, tokenizer, 1024, eos_id=eos_token_id)
     
     # 4) collator
     collator = SpanCorruptionCollator(
@@ -59,6 +75,8 @@ def main():
         lr_scheduler_type="cosine",
         save_steps=1000,
         logging_steps=100,
+        evaluation_strategy="steps",
+        eval_steps=500,
         save_total_limit=2,
         fp16=False,                     # use fp16 on nvidia gpu
         push_to_hub=False,
@@ -71,15 +89,31 @@ def main():
     )
 
     # 6) Trainer
+    def compute_metrics(eval_preds):
+        import math
+        logits, labels = eval_preds
+        logits = torch.tensor(logits)
+        labels = torch.tensor(labels)
+        loss = torch.nn.functional.cross_entropy(
+            logits.view(-1, logits.size(-1)),
+            labels.view(-1),
+            ignore_index=-100,
+        )
+        perplexity = torch.exp(loss)
+        return {"perplexity": perplexity.item(), "loss": loss.item()}
+
     trainer = Trainer(
         model=model,
         args=training_args,
-        train_dataset=ds,             # can be IterableDataset
-        data_collator=collator
+        train_dataset=ds,
+        eval_dataset=eval_ds,
+        data_collator=collator,
+        compute_metrics=compute_metrics,
     )
 
     # 7) Kick off training
     trainer.train()
+    trainer.evaluate()
     trainer.save_model("models/base/final")
 
 if __name__ == "__main__":

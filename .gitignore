@@ -9,5 +9,6 @@ __pycache__/
 *.pyzw
 *.pyzwz
 *.jsonl
+!data/eval_sample.jsonl
 *M.txt
 .DS_Store
