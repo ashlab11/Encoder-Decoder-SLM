@@ -2,7 +2,7 @@ import sentencepiece as spm
 import os
 
 # Paths and parameters
-CORPUS_FILE   = "data/MiniHQ_100M/slimpajama_cc_100M.jsonl"
+CORPUS_FILE   = "data/MiniHQ_100M/slimpajama_100M.txt"
 MODEL_DIR     = "tokenizer"
 MODEL_PREFIX  = os.path.join(MODEL_DIR, "tokenizer")
 VOCAB_SIZE    = 8192
@@ -35,7 +35,6 @@ spm.SentencePieceTrainer.Train(
     pad_id=3,
     user_defined_symbols=special_tokens,
     control_symbols=control_symbols,
-    normalization_rule_name='nmt_nfkc',  # Normalize unicode characters
     max_sentence_length=MAX_SENTENCE_LENGTH,
     input_sentence_size=SAMPLE_SIZE,
     shuffle_input_sentence=True

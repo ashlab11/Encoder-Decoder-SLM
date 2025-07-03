@@ -7,16 +7,18 @@ from pathlib import Path
 import json
 import sys
 import re
+import unicodedata
+
 
 TOKENIZER = re.compile(r"\S+")        # simple ≈word splitter; 10 × faster than Python split
 
 def n_tokens(txt: str) -> int:
     return len(TOKENIZER.findall(txt))
 
+
 # -------- settings -------------------------------------------------
 OUT_DIR = Path("data/MiniHQ_100M")
 OUT_DIR.mkdir(exist_ok=True)
-
 
 token_counts = {
     "RedPajamaCommonCrawl": {"count": 50_000_000, "so_far": 0},
@@ -52,10 +54,10 @@ with output_file.open("w", encoding="utf-8") as f:
             # Take enough examples from each! 
             if set_name not in token_counts.keys() or token_counts[set_name]["so_far"] >= token_counts[set_name]["count"]:
                 continue
-                
-            f.write(json.dumps({"text": ex["text"]}, ensure_ascii=False) + "\n")
-            tok_so_far += n_tokens(ex["text"])
-            token_counts[set_name]["so_far"] += n_tokens(ex["text"])
+            text = unicodedata.normalize("NFKC", ex["text"]) #Normalizing text
+            f.write(json.dumps({"text": text}, ensure_ascii=False) + "\n")
+            tok_so_far += n_tokens(text)
+            token_counts[set_name]["so_far"] += n_tokens(text)
             
             if tok_so_far % 1_000_000 == 0:
                 print(f"  ✓ {tok_so_far:,} lines written")

@@ -1,6 +1,7 @@
 import torch
 import torch.nn as nn
 from .layers import EncoderLayer, DecoderLayerWithCrossAttention
+import torch.nn.functional as F
 
 class BasicEDModel(nn.Module):
     def __init__(
@@ -47,24 +48,24 @@ class BasicEDModel(nn.Module):
         """Create attention mask for padding tokens"""
         return (input_ids == self.pad_token_id).unsqueeze(1).unsqueeze(2)
     
-    def encode(self, input_ids, attention_mask=None):
+    def encode(self, input_ids, enc_key_padding_mask=None):
         # Create padding mask if not provided
-        if attention_mask is None:
-            attention_mask = self.create_attention_mask(input_ids)
+        if enc_key_padding_mask is None:
+            enc_key_padding_mask = self.create_attention_mask(input_ids)
             
         # Embed input tokens
         x = self.embedding(input_ids)
         
         # Apply encoder layers
         for layer in self.encoder_layers:
-            x = layer(x, attention_mask=attention_mask)
+            x = layer(x, enc_key_padding_mask=enc_key_padding_mask)
             
         return x
     
-    def decode(self, input_ids, encoder_output, self_attention_mask=None, cross_attention_mask=None):
+    def decode(self, input_ids, encoder_output, dec_key_padding_mask=None, cross_key_padding_mask=None):
         # Create padding mask if not provided
-        if self_attention_mask is None:
-            self_attention_mask = self.create_attention_mask(input_ids)
+        if dec_key_padding_mask is None:
+            dec_key_padding_mask = self.create_attention_mask(input_ids)
             
         # Embed input tokens
         x = self.embedding(input_ids)
@@ -74,8 +75,8 @@ class BasicEDModel(nn.Module):
             x = layer(
                 x,
                 encoder_output,
-                self_attention_mask=self_attention_mask,
-                cross_attention_mask=cross_attention_mask
+                dec_key_padding_mask=dec_key_padding_mask,
+                cross_key_padding_mask=cross_key_padding_mask
             )
             
         # Project to vocabulary
@@ -86,25 +87,32 @@ class BasicEDModel(nn.Module):
     
     def forward(
         self,
-        encoder_input_ids,
+        input_ids,
         decoder_input_ids,
-        encoder_attention_mask=None,
-        decoder_attention_mask=None,
-        cross_attention_mask=None
+        labels,
+        enc_key_padding_mask=None,
+        dec_key_padding_mask=None,
+        cross_key_padding_mask=None
     ):
         # Encode
         encoder_output = self.encode(
-            encoder_input_ids,
-            attention_mask=encoder_attention_mask
+            input_ids,
+            enc_key_padding_mask=enc_key_padding_mask
         )
         
         # Decode
         logits = self.decode(
             decoder_input_ids,
             encoder_output,
-            self_attention_mask=decoder_attention_mask,
-            cross_attention_mask=cross_attention_mask
+            dec_key_padding_mask=dec_key_padding_mask,
+            cross_key_padding_mask=cross_key_padding_mask
         )
         
-        return logits
+        # Computing loss here
+        loss = F.cross_entropy(
+            logits.view(-1, logits.size(-1)),
+            labels.view(-1),
+            ignore_index=self.label_pad_token_id
+        )
+        return {"loss": loss, "logits": logits}
     

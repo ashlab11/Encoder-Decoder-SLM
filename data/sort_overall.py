@@ -1,6 +1,6 @@
 from datasets import load_dataset, concatenate_datasets
 
-#Not actually necessary -- instead we just cram the data together until we reach our batch size -- however, it's VERY 
+#Not necessary for span correction -- instead we just cram the data together until we reach our batch size -- however, it's VERY 
 #Useful for SFT later on!
 
 bucket_size = 2**12 # 4096, so this works with all batch sizes

@@ -26,7 +26,7 @@ class SelfAttention(nn.Module):
         
         self.rotary_emb = RotaryPositionalEmbeddings(dim=self.head_dim, max_seq_len=max_seq_len)
 
-    def forward(self, x, causal=True, attention_mask=None, **kwargs):
+    def forward(self, x, causal=True, key_padding_mask=None, **kwargs):
         B, L, D = x.size()  # [batch_size, seq_length, embed_dim]
         
         # Self-attention
@@ -38,19 +38,31 @@ class SelfAttention(nn.Module):
         query = self.rotary_emb(query)
         key = self.rotary_emb(key)
 
-        # Create causal mask
+        # Build causal mask (L×L), then fold in padding
         if causal:
-            causal_mask = torch.triu(torch.ones(L, L), diagonal=1).bool()
-            causal_mask = causal_mask.to(x.device)
-            
-            # Combine with attention mask if provided
-            if attention_mask is not None:
-                causal_mask = causal_mask | attention_mask
+            causal_part = torch.triu(torch.ones(L, L, device=x.device), diagonal=1).bool()
+        else:
+            causal_part = None
+
+        if key_padding_mask is not None:
+            # key_padding_mask: B×L boolean, True=pad → we want mask=True where pad
+            pad_part = key_padding_mask.unsqueeze(1).expand(B, L, L)  # B×L×L
+        else:
+            pad_part = None
+
+        # Combine: mask out either causal positions or padding positions
+        if causal_part is not None and pad_part is not None:
+            full_mask = pad_part | causal_part.unsqueeze(0)
+        elif causal_part is not None:
+            full_mask = causal_part
+        else:
+            full_mask = pad_part
 
         output = torch.nn.functional.scaled_dot_product_attention(
             query, key, value,
-            attn_mask=causal_mask if causal else attention_mask,
-            dropout_p=self.dropout if self.training else 0.0)
+            attn_mask=full_mask,
+            dropout_p=self.dropout.p if isinstance(self.dropout, nn.Dropout) else self.dropout)
+
         output = output.transpose(1, 2).contiguous().view(B, L, D)  # [B, L, embed_dim]
         output = self.out_proj(output)
         return output
@@ -77,7 +89,7 @@ class CrossAttention(nn.Module):
         self.query_rotary = RotaryPositionalEmbeddings(dim=self.head_dim, max_seq_len=dec_max_seq_len)
         self.key_rotary = RotaryPositionalEmbeddings(dim=self.head_dim, max_seq_len=enc_max_seq_len)
         
-    def forward(self, x, encoder_inputs, attention_mask=None, **kwargs):
+    def forward(self, x, encoder_inputs, key_padding_mask=None, **kwargs):
         B, L, D = x.size()  # [batch_size, decoder_seq_length, embed_dim]
         seq_len_enc = encoder_inputs.size(1)  # [batch_size, encoder_seq_length, embed_dim]
         
@@ -90,10 +102,18 @@ class CrossAttention(nn.Module):
         query = self.query_rotary(query)  # Use decoder positions
         key = self.key_rotary(key)    # Use encoder positions
         
+        # Build padding mask for cross-attn: B×S
+        if key_padding_mask is not None:
+            # expand to B×L×S so every decoder position uses same pad mask
+            full_mask = key_padding_mask.unsqueeze(1).expand(B, L, seq_len_enc)
+        else:
+            full_mask = None
+
         output = torch.nn.functional.scaled_dot_product_attention(
             query, key, value,
-            attn_mask=attention_mask,
-            dropout_p=self.dropout if self.training else 0.0) # [B, num_heads, L, head_dim]
+            attn_mask=full_mask,
+            dropout_p=self.dropout if not isinstance(self.dropout, nn.Dropout) else self.dropout.p)
+        
         output = output.transpose(1, 2).contiguous().view(B, L, D)  # [B, L, embed_dim]
         output = self.out_proj(output)
         return output

@@ -27,11 +27,11 @@ class EncoderLayer(nn.Module):
         )
         self.norm2 = nn.LayerNorm(dim)
         
-    def forward(self, x, attention_mask=None):
+    def forward(self, x, enc_key_padding_mask=None):
         # Self-attention with residual
         residual = x
         x = self.norm1(x)  # Pre-norm architecture
-        x = self.self_attn(x, causal=False, attention_mask=attention_mask)
+        x = self.self_attn(x, causal=False, key_padding_mask=enc_key_padding_mask)
         x = residual + x
         
         # MLP with residual
@@ -66,17 +66,17 @@ class DecoderLayerWithCrossAttention(nn.Module):
         )
         self.norm3 = nn.LayerNorm(dim)
         
-    def forward(self, x, encoder_output, self_attention_mask=None, cross_attention_mask=None):
+    def forward(self, x, encoder_output, dec_key_padding_mask=None, cross_key_padding_mask=None):
         # Self-attention with residual
         residual = x
         x = self.norm1(x)  # Pre-norm architecture
-        x = self.self_attn(x, causal=True, attention_mask=self_attention_mask)  # Always causal in decoder
+        x = self.self_attn(x, causal=True, key_padding_mask=dec_key_padding_mask)  # Always causal in decoder
         x = residual + x
         
         # Cross-attention with residual
         residual = x
         x = self.norm2(x)  # Pre-norm architecture
-        x = self.cross_attn(x, encoder_output, attention_mask=cross_attention_mask)
+        x = self.cross_attn(x, encoder_output, key_padding_mask=cross_key_padding_mask)
         x = residual + x
         
         # MLP with residual
