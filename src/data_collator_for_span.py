@@ -1,4 +1,5 @@
 import random
+import torch
 from scipy.stats import poisson
 
 class SpanCorruptionCollator:
@@ -117,10 +118,10 @@ class SpanCorruptionCollator:
         ]
         
         return {
-            "input_ids":                 padded_inputs,
-            "decoder_input_ids": decoder_input_ids,
-            "labels":                    padded_labels,
-            "enc_key_padding_mask":  encoder_key_padding_mask,
-            "dec_key_padding_mask":  decoder_key_padding_mask,
-            "cross_key_padding_mask":  encoder_key_padding_mask # same as encoder mask
+            "input_ids":                 torch.tensor(padded_inputs, dtype=torch.long),
+            "decoder_input_ids":         torch.tensor(decoder_input_ids, dtype=torch.long),
+            "labels":                    torch.tensor(padded_labels, dtype=torch.long),
+            "enc_key_padding_mask":      torch.tensor(encoder_key_padding_mask, dtype=torch.bool),
+            "dec_key_padding_mask":      torch.tensor(decoder_key_padding_mask, dtype=torch.bool),
+            "cross_key_padding_mask":    torch.tensor(encoder_key_padding_mask, dtype=torch.bool) # same as encoder mask
         }

@@ -15,12 +15,13 @@ class BasicEDModel(nn.Module):
         dec_seq_len: int = 1024,
         mlp_dim: int = None,
         dropout: float = 0.1,
-        pad_token_id: int = 0
+        pad_token_id: int = 0, 
+        label_pad_token_id: int = -100
     ):
         super(BasicEDModel, self).__init__()
         self.dim = dim
         self.pad_token_id = pad_token_id
-        
+        self.label_pad_token_id = label_pad_token_id
         # Token embeddings
         print(vocab_size, dim)
         self.embedding = nn.Embedding(vocab_size, dim)

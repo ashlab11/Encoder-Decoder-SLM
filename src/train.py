@@ -6,7 +6,7 @@ from torch.utils.data import DataLoader
 from components.basic_model import BasicEDModel
 from data.pack_datasets import build_packed_dataset
 from src.data_collator_for_span import SpanCorruptionCollator
-
+import os
 def main():
     # 1) tokenizer & sentinel ids
     tokenizer = Tokenizer.from_file("tokenizer/tokenizer.json")
@@ -48,12 +48,12 @@ def main():
         eos_token_id=eos_token_id
     )
     max_steps = int(100_000_000 / 1024 / 8 / 4) # 100M tokens / 1024 tokens per seq / 8 batches / 4 accumulation ≈ 3052
-        
+    os.environ['ACCELERATE_DISPATCH_BATCHES'] = "false"
     # 5) TrainingArguments
     training_args = TrainingArguments(
         output_dir="models/base",
         per_device_train_batch_size=8,
-        max_steps= max_steps,
+        max_steps=max_steps,        # computed steps
         learning_rate=3e-4,
         warmup_steps=1000,
         lr_scheduler_type="cosine",
@@ -63,9 +63,9 @@ def main():
         fp16=False,                     # use fp16 on nvidia gpu
         push_to_hub=False,
         remove_unused_columns=False,   # because our model doesn't expect extra cols
+        #dataloader_num_workers=4,      # parallelize data loading
         dataloader_pin_memory=False,   # disable for MPS
         dataloader_drop_last=True,     # drop incomplete batches
-        dataloader_split_batches=True,    # split batches across processes
         gradient_accumulation_steps=4,  # accumulate gradients over 4 batches (effective batch size = 32)
         ddp_find_unused_parameters=False  # disable parameter sync check
     )
