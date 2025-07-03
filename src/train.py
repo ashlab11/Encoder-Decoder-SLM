@@ -47,12 +47,13 @@ def main():
         bos_token_id=bos_token_id,
         eos_token_id=eos_token_id
     )
-
+    max_steps = int(100_000_000 / 1024 / 8 / 4) # 100M tokens / 1024 tokens per seq / 8 batches / 4 accumulation ≈ 3052
+        
     # 5) TrainingArguments
     training_args = TrainingArguments(
         output_dir="models/base",
         per_device_train_batch_size=8,
-        max_steps=12207,        # 100M tokens / 1024 tokens per seq / 8 batches ≈ 12,207 steps
+        max_steps= max_steps,
         learning_rate=3e-4,
         warmup_steps=1000,
         lr_scheduler_type="cosine",
@@ -62,6 +63,11 @@ def main():
         fp16=False,                     # use fp16 on nvidia gpu
         push_to_hub=False,
         remove_unused_columns=False,   # because our model doesn't expect extra cols
+        dataloader_pin_memory=False,   # disable for MPS
+        dataloader_drop_last=True,     # drop incomplete batches
+        dataloader_split_batches=True,    # split batches across processes
+        gradient_accumulation_steps=4,  # accumulate gradients over 4 batches (effective batch size = 32)
+        ddp_find_unused_parameters=False  # disable parameter sync check
     )
 
     # 6) Trainer
@@ -69,7 +75,7 @@ def main():
         model=model,
         args=training_args,
         train_dataset=ds,             # can be IterableDataset
-        data_collator=collator,
+        data_collator=collator
     )
 
     # 7) Kick off training
