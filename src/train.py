@@ -76,7 +76,7 @@ def main():
         save_steps=1000,
         logging_steps=100,
         evaluation_strategy="steps",
-        eval_steps=500,
+        eval_steps=50,
         save_total_limit=2,
         fp16=False,                     # use fp16 on nvidia gpu
         push_to_hub=False,
