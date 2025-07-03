@@ -7,36 +7,28 @@ import sentencepiece as spm
 import re
 
 
-def pack_iter(ds, tokenizer, ctx_len): 
+def pack_iter(ds, tokenizer, ctx_len, eos_id=0): 
     """Yield packed lists of token-ids <= ctx_len."""
     
     print("Starting to pack??")
-    EOS_ID = tokenizer.eos_id()
     current = []
     for doc in ds:
         # First normalize using the same normalization as training
-        ids = tokenizer.encode(doc["text"])
-        if ids:
-            print("Doc text:", doc["text"])
-            print("Tokenized, ids are", ids)
+        ids = tokenizer.encode(doc["text"]).ids
         while ids: #ids may even be twice as long as the ctx length
-            print("Checking if we need to yield")
             if len(ids) + len(current) > ctx_len - 1:
-                print("Yielding!")
                 current += ids[:(ctx_len - len(current))]
-                print("Yielding!")
                 yield {"input_ids": current}
                 current = []
                 ids = ids[ctx_len - len(current):]
             else:
-                print("Adding to current")
                 current += ids
-                current.append(EOS_ID)  # Only add EOS when we finish a document
+                current.append(eos_id)  # Only add EOS when we finish a document
                 ids = []
     if current:  # Only yield remaining tokens if we have any
         yield {"input_ids": current}
 
-def build_packed_dataset(ds, tokenizer, ctx_len):
+def build_packed_dataset(ds, tokenizer, ctx_len, eos_id=0):
     # ds is any hf streaming dataset with a "text" column
     def generator():
         yield from pack_iter(ds, tokenizer, ctx_len)

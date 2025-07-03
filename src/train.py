@@ -1,4 +1,5 @@
-from transformers import Trainer, TrainingArguments
+from transformers import Trainer, TrainingArguments, PreTrainedTokenizerFast
+from tokenizers import Tokenizer    
 import sentencepiece as spm
 from datasets import load_dataset
 from torch.utils.data import DataLoader
@@ -8,15 +9,17 @@ from src.data_collator_for_span import SpanCorruptionCollator
 
 def main():
     # 1) tokenizer & sentinel ids
-    tokenizer = spm.SentencePieceProcessor(model_file='tokenizer/tokenizer.model')
-    sentinel_ids = [tokenizer.piece_to_id(f"<sentinel_{i}>") for i in range(100)]
-    pad_token_id = tokenizer.piece_to_id("<pad>")
-    bos_token_id = tokenizer.piece_to_id("<s>")
-    eos_token_id = tokenizer.piece_to_id("</s>")
+    tokenizer = Tokenizer.from_file("tokenizer/tokenizer.json")
+
+    # Token to id doesn't add <s>
+    sentinel_ids = [tokenizer.token_to_id(f"<sentinel_{i}>") for i in range(100)]
+    pad_token_id = tokenizer.token_to_id("<pad>")
+    bos_token_id = tokenizer.token_to_id("<s>")
+    eos_token_id = tokenizer.token_to_id("</s>") 
 
     # 2) model
     model = BasicEDModel(
-        vocab_size=tokenizer.vocab_size(),
+        vocab_size=tokenizer.get_vocab_size(),
         dim=256,
         num_heads=8,
         num_encoder_layers=6,
@@ -32,11 +35,8 @@ def main():
                       split="train",
                       streaming=True)
     ds = ds.shuffle(buffer_size=10_000, seed=42)
-    ds = build_packed_dataset(ds, tokenizer, 1024)
+    ds = build_packed_dataset(ds, tokenizer, 1024, eos_id=eos_token_id)
     
-    for ex in ds:
-        print(ex)
-
     # 4) collator
     collator = SpanCorruptionCollator(
         sentinel_ids=sentinel_ids,
@@ -52,16 +52,16 @@ def main():
     training_args = TrainingArguments(
         output_dir="models/base",
         per_device_train_batch_size=8,
-        num_train_epochs=1,
+        max_steps=12207,        # 100M tokens / 1024 tokens per seq / 8 batches ≈ 12,207 steps
         learning_rate=3e-4,
         warmup_steps=1000,
         lr_scheduler_type="cosine",
         save_steps=1000,
         logging_steps=100,
         save_total_limit=2,
-        fp16=True,                     # or bf16 if supported
+        fp16=False,                     # use fp16 on nvidia gpu
         push_to_hub=False,
-        remove_unused_columns=False,   # because our model doesn’t expect extra cols
+        remove_unused_columns=False,   # because our model doesn't expect extra cols
     )
 
     # 6) Trainer
