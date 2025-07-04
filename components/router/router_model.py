@@ -45,6 +45,16 @@ class RouterModel(nn.Module):
         # Tie weights between input and output embeddings
         self.output_projection.weight = self.embedding.weight
         
+        # Initialize weights using Xavier initialization for Linear layers
+        self.apply(self._init_weights)
+
+    def _init_weights(self, module):
+        """Apply Xavier initialization to all Linear layers."""
+        if isinstance(module, nn.Linear):
+            nn.init.xavier_uniform_(module.weight)
+            if module.bias is not None:
+                nn.init.zeros_(module.bias)
+        
     def create_attention_mask(self, input_ids):
         """Create attention mask for padding tokens"""
         return (input_ids == self.pad_token_id).unsqueeze(1).unsqueeze(2)

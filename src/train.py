@@ -111,9 +111,14 @@ def main():
 
         if (micro_step + 1) % grad_accum_steps == 0:
             if scaler:
+                # Unscale gradients before clipping when using mixed precision
+                scaler.unscale_(optimizer)
+                torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
                 scaler.step(optimizer)
                 scaler.update()
             else:
+                # Clip gradients to a global norm of 1.0
+                torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
                 optimizer.step()
             scheduler.step()
             optimizer.zero_grad()

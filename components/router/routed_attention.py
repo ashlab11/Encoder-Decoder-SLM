@@ -18,11 +18,17 @@ class RoutedSelfAttention(nn.Module):
         assert self.head_dim * num_heads == dim, "dim must be divisible by num_heads"
         self.max_seq_len = max_seq_len
         
-        # Stack all projections into single tensors for more efficient computation
-        self.query_projs = nn.Parameter(torch.randn(num_attentions, dim, dim))
-        self.key_projs = nn.Parameter(torch.randn(num_attentions, dim, dim))
-        self.value_projs = nn.Parameter(torch.randn(num_attentions, dim, dim))
-        self.out_projs = nn.Parameter(torch.randn(num_attentions, dim, dim))
+        # Projection matrices for each routed attention block
+        self.query_projs = nn.Parameter(torch.empty(num_attentions, dim, dim))
+        self.key_projs = nn.Parameter(torch.empty(num_attentions, dim, dim))
+        self.value_projs = nn.Parameter(torch.empty(num_attentions, dim, dim))
+        self.out_projs = nn.Parameter(torch.empty(num_attentions, dim, dim))
+
+        # Xavier initialization for projection weights
+        nn.init.xavier_uniform_(self.query_projs)
+        nn.init.xavier_uniform_(self.key_projs)
+        nn.init.xavier_uniform_(self.value_projs)
+        nn.init.xavier_uniform_(self.out_projs)
         
         self.scale = self.head_dim ** -0.5
         self.dropout = nn.Dropout(dropout)
