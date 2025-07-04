@@ -17,7 +17,7 @@ def n_tokens(txt: str) -> int:
 
 
 # -------- settings -------------------------------------------------
-OUT_DIR = Path("data/MiniHQ_100M")
+OUT_DIR = Path("data/Pretrain")
 OUT_DIR.mkdir(exist_ok=True)
 
 token_counts = {

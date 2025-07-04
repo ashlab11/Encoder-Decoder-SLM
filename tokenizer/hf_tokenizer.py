@@ -5,17 +5,9 @@ import os
 # Constants
 NUM_SENTINELS = 100
 VOCAB_SIZE = 8192
-CORPUS_FILE = "data/MiniHQ_100M/slimpajama_100M.txt"
+CORPUS_FILE = "data/Pretrain/slimpajama_100M.txt"
 MODEL_PREFIX = "tokenizer/tokenizer"
 
-from tokenizers import Tokenizer, models, pre_tokenizers, decoders, trainers, processors
-from tokenizers.normalizers import NFKC, Sequence, Strip
-import os
-
-NUM_SENTINELS = 100
-VOCAB_SIZE    = 8192
-CORPUS_FILE   = "data/MiniHQ_100M/slimpajama_100M.txt"
-MODEL_PREFIX  = "tokenizer/tokenizer"
 
 def create_tokenizer():
     # 1) Initialize a BPE tokenizer with an unk token

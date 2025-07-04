@@ -1,24 +1,17 @@
-from transformers import Trainer, TrainingArguments
 from tokenizers import Tokenizer
 from datasets import load_dataset
-from components.basic_model import BasicEDModel
-from data.pack_datasets import build_packed_dataset
-from src.data_collator_for_span import SpanCorruptionCollator
+from torch.utils.data import DataLoader
+from torch.optim import AdamW
+from transformers import get_cosine_schedule_with_warmup
 import torch
+from components.base.basic_model import BasicEDModel
+from components.router.router_model import RouterModel
+from data.pack_datasets import build_packed_dataset
+from collators.data_collator_for_span import SpanCorruptionCollator
 import os
-def main():
-    torch.set_float32_matmul_precision("high")
-    device = "cuda" if torch.cuda.is_available() else "cpu"
-    if torch.cuda.is_available():
-        torch.backends.cuda.matmul.allow_tf32 = True
-        torch.backends.cudnn.benchmark = True
-        if hasattr(torch.backends.cuda, "enable_flash_sdp"):
-            torch.backends.cuda.enable_flash_sdp(True)
-        if hasattr(torch.backends.cuda, "enable_mem_efficient_sdp"):
-            torch.backends.cuda.enable_mem_efficient_sdp(True)
-        if hasattr(torch.backends.cuda, "enable_math_sdp"):
-            torch.backends.cuda.enable_math_sdp(True)
+from tqdm import tqdm
 
+def main():
     # 1) tokenizer & sentinel ids
     tokenizer = Tokenizer.from_file("tokenizer/tokenizer.json")
 
@@ -27,8 +20,8 @@ def main():
     pad_token_id = tokenizer.token_to_id("<pad>")
     bos_token_id = tokenizer.token_to_id("<s>")
     eos_token_id = tokenizer.token_to_id("</s>") 
-
-    # 2) model
+ 
+    # 2) model -- for now we use base model, will change eventually
     model = BasicEDModel(
         vocab_size=tokenizer.get_vocab_size(),
         dim=256,
@@ -39,30 +32,19 @@ def main():
         dec_seq_len=512,
         pad_token_id=pad_token_id
     )
-
-    if hasattr(torch, "compile"):
-        try:
-            model = torch.compile(model)
-        except Exception:
-            pass
-    model.to(device)
-
+ 
     # 3) dataset pipeline (streaming ok)
-    ds = load_dataset(
-        "json",
-        data_files="data/MiniHQ_100M/slimpajama_100M.jsonl",
-        split="train",
-        streaming=True,
-    )
+    ds = load_dataset("json",
+                    data_files="data/Pretrain/slimpajama_100M.jsonl",
+                    split="train",
+                    streaming=True)
     ds = ds.shuffle(buffer_size=10_000, seed=42)
     ds = build_packed_dataset(ds, tokenizer, 1024, eos_id=eos_token_id)
-
-    eval_raw = load_dataset(
-        "json",
-        data_files="data/eval_sample.jsonl",
-        split="train",
-    )
-    eval_ds = build_packed_dataset(eval_raw, tokenizer, 1024, eos_id=eos_token_id)
+    
+    eval_ds = load_dataset("json",
+                        data_files="data/eval_sample.jsonl",
+                        split="train")
+    eval_ds = build_packed_dataset(eval_ds, tokenizer, 1024, eos_id=eos_token_id)
     
     # 4) collator
     collator = SpanCorruptionCollator(
@@ -74,58 +56,98 @@ def main():
         bos_token_id=bos_token_id,
         eos_token_id=eos_token_id
     )
-    max_steps = int(100_000_000 / 1024 / 8 / 4) # 100M tokens / 1024 tokens per seq / 8 batches / 4 accumulation ≈ 3052
-    os.environ['ACCELERATE_DISPATCH_BATCHES'] = "false"
-    # 5) TrainingArguments
-    training_args = TrainingArguments(
-        output_dir="models/base",
-        per_device_train_batch_size=8,
-        max_steps=max_steps,        # computed steps
-        learning_rate=3e-4,
-        warmup_steps=1000,
-        lr_scheduler_type="cosine",
-        save_steps=1000,
-        logging_steps=100,
-        evaluation_strategy="steps",
-        eval_steps=50,
-        save_total_limit=2,
-        fp16=True if torch.cuda.is_available() else False,
-        push_to_hub=False,
-        remove_unused_columns=False,   # because our model doesn't expect extra cols
-        #dataloader_num_workers=4,      # parallelize data loading
-        dataloader_pin_memory=True if torch.cuda.is_available() else False,
-        dataloader_drop_last=True,     # drop incomplete batches
-        gradient_accumulation_steps=4,  # accumulate gradients over 4 batches (effective batch size = 32)
-        ddp_find_unused_parameters=False  # disable parameter sync check
+
+    batch_size = 8
+    grad_accum_steps = 4
+    logging_steps = 100
+    eval_steps = 500
+    save_steps = 1000
+    
+    max_steps = int(100_000_000 / 1024 / batch_size / grad_accum_steps)
+
+    dataloader = DataLoader(
+        ds,
+        batch_size=batch_size,
+        collate_fn=collator,
+        drop_last=True,
+        pin_memory=torch.cuda.is_available(),
+    )
+    
+    eval_dataloader = DataLoader(
+        eval_ds,
+        batch_size=batch_size,
+        collate_fn=collator,
+        drop_last=True,
+        pin_memory=torch.cuda.is_available(),
     )
 
-    # 6) Trainer
-    def compute_metrics(eval_preds):
-        import math
-        logits, labels = eval_preds
-        logits = torch.tensor(logits)
-        labels = torch.tensor(labels)
-        loss = torch.nn.functional.cross_entropy(
-            logits.view(-1, logits.size(-1)),
-            labels.view(-1),
-            ignore_index=-100,
-        )
-        perplexity = torch.exp(loss)
-        return {"perplexity": perplexity.item(), "loss": loss.item()}
-
-    trainer = Trainer(
-        model=model,
-        args=training_args,
-        train_dataset=ds,
-        eval_dataset=eval_ds,
-        data_collator=collator,
-        compute_metrics=compute_metrics,
+    device = "cuda" if torch.cuda.is_available() else 'mps' if torch.backends.mps.is_available() else "cpu"
+    if torch.cuda.is_available():
+        torch.backends.cuda.matmul.allow_tf32 = True
+        torch.backends.cudnn.benchmark = True
+    
+    model.to(device)
+    optimizer = AdamW(model.parameters(), lr=3e-4)
+    scheduler = get_cosine_schedule_with_warmup(
+        optimizer,
+        num_warmup_steps=1000,
+        num_training_steps=max_steps,
     )
+    scaler = torch.amp.GradScaler(device='cuda') if torch.cuda.is_available() else None
 
-    # 7) Kick off training
-    trainer.train()
-    trainer.evaluate()
-    trainer.save_model("models/base/final")
+    model.train()
+    os.makedirs("models/base", exist_ok=True)
+    optimizer.zero_grad()
+    step = 0
+    for micro_step, batch in tqdm(enumerate(dataloader), total=max_steps * grad_accum_steps, desc="Training"):
+        batch = {k: v.to(device) for k, v in batch.items()}
+        with torch.amp.autocast(device_type=device, dtype=torch.float16):
+            outputs = model(**batch)
+            loss = outputs["loss"] / grad_accum_steps
+        if scaler:
+            scaler.scale(loss).backward()
+        else:
+            loss.backward()
+
+        if (micro_step + 1) % grad_accum_steps == 0:
+            if scaler:
+                scaler.step(optimizer)
+                scaler.update()
+            else:
+                optimizer.step()
+            scheduler.step()
+            optimizer.zero_grad()
+            step += 1
+
+            if step % logging_steps == 0:
+                print(f"Step {step}/{max_steps} - loss: {loss.item() * grad_accum_steps:.4f}")
+
+            #FIX PERPLEXITY CALCULATIONS!
+            if step % eval_steps == 0:
+                model.eval()
+                with torch.no_grad():
+                    eval_loss = 0
+                    total_tokens = 0
+                    for eval_batch in eval_dataloader:
+                        eval_batch = {k: v.to(device) for k, v in eval_batch.items()}
+                        with torch.amp.autocast(device_type=device, dtype=torch.float16):
+                            eval_outputs = model(**eval_batch)
+                            num_tokens = (eval_batch['labels'] != -100).sum()
+                            eval_loss = eval_outputs["loss"] * num_tokens
+                        eval_loss += eval_loss
+                        total_tokens += num_tokens
+                        
+                    eval_loss /= total_tokens
+                    eval_ppl = torch.exp(eval_loss)
+                    print(f"Step {step}/{max_steps} - eval perplexity: {eval_ppl:.4f}")
+                    model.train()
+                        
+            if step % save_steps == 0:
+                torch.save(model.state_dict(), f"models/base/checkpoint_{step}.pt")
+
+
+    torch.save(model.state_dict(), "models/base/final.pt")
+
 
 if __name__ == "__main__":
     main()
