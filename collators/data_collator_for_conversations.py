@@ -10,11 +10,14 @@ class ConversationCollator:
     def __init__(
         self,
         label_pad_token_id=-100,
-        pad_token_id=3
+        bos_token_id=2,
+        pad_token_id=3, 
+        assistant_token_id=4
     ):
         self.pad_token_id = pad_token_id
         self.label_pad_token_id = label_pad_token_id
-
+        self.bos_token_id = bos_token_id
+        self.assistant_token_id = assistant_token_id
     def __call__(self, batch):
         """
         batch: List[Dict[str, List[int]]]  each dict must have an "input_ids" and "output_ids" key.
@@ -52,26 +55,41 @@ class ConversationCollator:
             for seq in input_ids
         ] # [B, L]
 
-        # 2) Pad decoder labels
+        # Example: [5, 2, 10, 3] but max length 5
+        # Labels pt 1: [5, 2, 10, 3, -100]
+        # Decoder: [5, 2, 10, 3]
+        # Labels 2: [2, 10, 3, -100]
+        
+        # 2) Creating decoder inputs + labels
         max_label_len = max(len(seq) for seq in labels)
         padded_labels = [
             seq + [self.label_pad_token_id] * (max_label_len - len(seq))
             for seq in labels
-        ] 
+        ] #later we push labels by one but now we don't
+        
+        decoder_input_ids = [[
+            (token if token != self.label_pad_token_id else self.pad_token_id)
+            for token in label_seq[:-1]
+        ] for label_seq in padded_labels]
+        
+        # Shift labels left by one to align with decoder inputs (length = max_label_len - 1)
+        padded_labels = [
+            seq[1:]
+            for seq in padded_labels
+        ]
+        
+        #Mask out the <assistant> tag
+        padded_labels = [
+            [
+                (token if token != self.assistant_token_id else self.label_pad_token_id)
+                for token in seq
+            ]
+            for seq in padded_labels
+        ]
         
         decoder_key_padding_mask = [
-            [False] * len(seq) + [True]  * (max_label_len - len(seq))
-            for seq in labels
-        ] # [B, L]
-        
-        # 3) Shift labels right to create decoder inputs (replace -100 with pad)
-        decoder_input_ids = [
-            [self.bos_token_id] +
-            [
-                (token if token != self.label_pad_token_id else self.pad_token_id)
-                for token in label_seq[:-1]
-            ]
-            for label_seq in padded_labels
+            [tok_id == self.pad_token_id for tok_id in seq]
+            for seq in decoder_input_ids
         ]
         
         return {

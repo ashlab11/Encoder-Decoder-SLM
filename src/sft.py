@@ -20,9 +20,20 @@ def main():
     pad_token_id = tokenizer.token_to_id("<pad>")
     bos_token_id = tokenizer.token_to_id("<s>")
     eos_token_id = tokenizer.token_to_id("</s>") 
+    assistant_token_id = tokenizer.token_to_id("<assistant>")
  
     # 2) model
-    model = torch.load("models/base/pretrained.pt")
+    model = BasicEDModel(
+        vocab_size=tokenizer.get_vocab_size(),
+        dim=256,
+        num_heads=8,
+        num_encoder_layers=6,
+        num_decoder_layers=3,
+        enc_seq_len=1024,
+        dec_seq_len=512,
+        pad_token_id=pad_token_id
+    )
+    model.load_state_dict(torch.load("models/base/pretrained.pt"))
  
     # 3) dataset pipeline (streaming ok)
     ds = load_dataset("json",
@@ -39,13 +50,15 @@ def main():
     # 4) collator
     collator = ConversationCollator(
         pad_token_id=pad_token_id,
-        label_pad_token_id=-100
+        label_pad_token_id=-100, 
+        bos_token_id=bos_token_id,
+        assistant_token_id=assistant_token_id
     )
 
-    batch_size = 8
-    grad_accum_steps = 4
+    batch_size = 64
+    grad_accum_steps = 1
     logging_steps = 100
-    eval_steps = 500
+    eval_steps = 5
     save_steps = 1000
     
     max_steps = int(10_000_000 / 1024 / batch_size / grad_accum_steps)
@@ -85,7 +98,8 @@ def main():
     optimizer.zero_grad()
     step = 0
     for micro_step, batch in tqdm(enumerate(dataloader), total=max_steps * grad_accum_steps, desc="Training"):
-        batch = {k: v.to(device) for k, v in batch.items()}
+        batch = {k: v.to(device, non_blocking=True) for k, v in batch.items()}
+        
         with torch.amp.autocast(device_type=device, dtype=torch.float16):
             outputs = model(**batch)
             loss = outputs["loss"] / grad_accum_steps
@@ -114,13 +128,13 @@ def main():
                     eval_loss = 0
                     total_tokens = 0
                     for eval_batch in eval_dataloader:
-                        eval_batch = {k: v.to(device) for k, v in eval_batch.items()}
+                        eval_batch = {k: v.to(device, non_blocking=True) for k, v in eval_batch.items()}
                         with torch.amp.autocast(device_type=device, dtype=torch.float16):
                             eval_outputs = model(**eval_batch)
                             num_tokens = (eval_batch['labels'] != -100).sum()
                             eval_loss = eval_outputs["loss"] * num_tokens
-                        eval_loss += eval_loss
-                        total_tokens += num_tokens
+                            eval_loss += eval_loss
+                            total_tokens += num_tokens
                         
                     eval_loss /= total_tokens
                     eval_ppl = torch.exp(eval_loss)

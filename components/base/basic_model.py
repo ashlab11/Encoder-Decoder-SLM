@@ -44,16 +44,8 @@ class BasicEDModel(nn.Module):
         
         # Tie weights between input and output embeddings
         self.output_projection.weight = self.embedding.weight
-        
-    def create_attention_mask(self, input_ids):
-        """Create attention mask for padding tokens"""
-        return (input_ids == self.pad_token_id).unsqueeze(1).unsqueeze(2)
     
-    def encode(self, input_ids, enc_key_padding_mask=None):
-        # Create padding mask if not provided
-        if enc_key_padding_mask is None:
-            enc_key_padding_mask = self.create_attention_mask(input_ids)
-            
+    def encode(self, input_ids, enc_key_padding_mask=None):            
         # Embed input tokens
         x = self.embedding(input_ids)
         
@@ -64,10 +56,7 @@ class BasicEDModel(nn.Module):
         return x
     
     def decode(self, input_ids, encoder_output, dec_key_padding_mask=None, cross_key_padding_mask=None):
-        # Create padding mask if not provided
-        if dec_key_padding_mask is None:
-            dec_key_padding_mask = self.create_attention_mask(input_ids)
-            
+                    
         # Embed input tokens
         x = self.embedding(input_ids)
         
@@ -121,25 +110,30 @@ class BasicEDModel(nn.Module):
         """Given an input of a prompt, generate a response"""
         eos_token_id = tokenizer.token_to_id("</s>") 
         input_ids = tokenizer.encode(input).ids # [L]
+        input_ids = torch.tensor(input_ids).to(device).unsqueeze(0)
         encoder_output = self.encode(input_ids) # [L, D]
-        decoder_input_ids = torch.tensor([[tokenizer.bos_token_id]]).to(device)
+        bos_token_id = tokenizer.token_to_id("<s>")
+        assistant_token_id = tokenizer.token_to_id("<assistant>")
+        decoder_input_ids = torch.tensor([bos_token_id, assistant_token_id]).to(device).unsqueeze(0)
+ 
         
-        while decoder_input_ids[:, -1] != eos_token_id and len(decoder_input_ids) < max_new_tokens:
+        while decoder_input_ids[0][-1] != eos_token_id and len(decoder_input_ids[0]) < max_new_tokens:
             logits = self.decode(decoder_input_ids, encoder_output)
             logits = logits[:, -1, :] / temperature
+            logits = logits.squeeze()
             if top_k > 0:
                 values, _ = torch.topk(logits, top_k)
-                indices_to_remove = logits < values[:, [-1]]
+                indices_to_remove = logits < values[0]
                 logits[indices_to_remove] = -float('inf')
-            if top_p > 0:
+            """if top_p > 0:
                 sorted_logits, _ = torch.sort(logits, descending=True)
-                cumulative_probs = torch.cumsum(F.softmax(sorted_logits, dim=-1), dim=-1)
+                cumulative_probs = torch.cumsum(F.softmax(sorted_logits))
                 sorted_indices_to_remove = cumulative_probs > top_p
                 sorted_indices_to_remove[..., 1:] = sorted_indices_to_remove[..., :-1]
-                logits[sorted_indices_to_remove] = -float('inf')
-            probs = F.softmax(logits, dim=-1)
+                logits[sorted_indices_to_remove] = -float('inf')"""
+            probs = F.softmax(logits)
             next_token = torch.multinomial(probs, num_samples=1)
-            decoder_input_ids = torch.cat([decoder_input_ids, next_token], dim=-1)
+            decoder_input_ids = torch.cat([decoder_input_ids, next_token.unsqueeze(0)], dim=-1)
         return tokenizer.decode(decoder_input_ids[0].tolist())
         
         

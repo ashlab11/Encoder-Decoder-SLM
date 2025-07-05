@@ -46,15 +46,15 @@ with output_file.open("w", encoding="utf-8") as f:
                 if message['role'] == 'user':
                     if context:
                         context += " " # prepend a space so segments don't mash together, only after the first
-                    context += f"<user> <s> {message['content']} </s>"
+                    context += f"<user> {message['content']}"
                 else:
                     f.write(json.dumps({
                         "input_text":  context,
-                        "output_text": "<assistant> <s> " + message['content'] + " </s>"
+                        "output_text": "<assistant> " + message['content']
                     }, ensure_ascii=False) + "\n")
                     tok_so_far += n_tokens(message['content']) + n_tokens(context)
                     # add this assistant turn into context for next rounds
-                    context += " " + f"<assistant> <s> {message['content']} </s>"
+                    context += " " + f"<assistant> {message['content']}"
                     if tok_so_far >= target_tokens:
                         break  # stop inner loop once we've hit our budget
 
