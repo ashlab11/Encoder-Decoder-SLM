@@ -44,6 +44,34 @@ class BasicEDModel(nn.Module):
         
         # Tie weights between input and output embeddings
         self.output_projection.weight = self.embedding.weight
+        
+        # Initialize weights for fast convergence! 
+        self._init_weights()
+        
+    def _init_weights(self):
+        """Initialize weights with proper initialization schemes per layer type"""
+        # Initialize embedding with normal distribution
+        nn.init.normal_(self.embedding.weight, mean=0.0, std=0.02)
+        
+        # Initialize transformer layers
+        for layer in self.encoder_layers + self.decoder_layers:
+            # Linear layers get xavier uniform
+            for name, param in layer.named_parameters():
+                if 'weight' in name and param.dim() > 1:
+                    nn.init.xavier_uniform_(param)
+                elif 'bias' in name:
+                    nn.init.zeros_(param)
+                # Layer norm weights get 1, biases get 0
+                elif 'norm' in name and 'weight' in name:
+                    nn.init.ones_(param)
+                elif 'norm' in name and 'bias' in name:
+                    nn.init.zeros_(param)
+        
+        # Initialize output norm
+        nn.init.ones_(self.output_norm.weight)
+        nn.init.zeros_(self.output_norm.bias)
+        
+        # Output projection is tied to embedding, so skip it
     
     def encode(self, input_ids, enc_key_padding_mask=None):            
         # Embed input tokens

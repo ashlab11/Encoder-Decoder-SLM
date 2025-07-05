@@ -11,7 +11,7 @@ from collators.data_collator_for_conversations import ConversationCollator
 import os
 from tqdm import tqdm
 
-def main():
+def sft(output_dir: str, output_file_name: str):
     # 1) tokenizer & sentinel ids
     tokenizer = Tokenizer.from_file("tokenizer/tokenizer.json")
 
@@ -94,7 +94,7 @@ def main():
     scaler = torch.amp.GradScaler(device='cuda') if torch.cuda.is_available() else None
 
     model.train()
-    os.makedirs("models/base", exist_ok=True)
+    os.makedirs(output_dir, exist_ok=True)
     optimizer.zero_grad()
     step = 0
     for micro_step, batch in tqdm(enumerate(dataloader), total=max_steps * grad_accum_steps, desc="Training"):
@@ -142,10 +142,10 @@ def main():
                     model.train()
                         
             if step % save_steps == 0:
-                torch.save(model.state_dict(), f"models/base/checkpoint_sft_{step}.pt")
+                torch.save(model.state_dict(), f"{output_dir}/checkpoint_{step}.pt")
 
 
-    torch.save(model.state_dict(), "models/base/sft.pt")
+    torch.save(model.state_dict(), f"{output_dir}/{output_file_name}.pt")
 
 if __name__ == "__main__":
-    main()
+    sft(output_dir="models/base", output_file_name="sft")
